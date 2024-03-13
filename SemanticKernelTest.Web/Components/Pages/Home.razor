@@ -1,0 +1,125 @@
+﻿@page "/"
+@rendermode InteractiveServer
+@using Azure.AI.OpenAI
+@using Microsoft.SemanticKernel
+@using Microsoft.SemanticKernel.ChatCompletion
+@using Microsoft.SemanticKernel.Connectors.OpenAI
+@using SemanticKernelTest.Web.Models
+@using System.Text.RegularExpressions
+@inject Kernel _kernel
+
+<div class="h-100 mh-100 d-flex flex-column overflow-hidden justify-content-start">
+    <div class="toast-container position-static w-100 d-flex flex-column align-items-stretch">
+        @foreach (var msg in History)
+        {
+            <div class="toast fade show w-75 rounded-3 @(msg.Role == AuthorRole.Assistant || msg.Role == AuthorRole.Tool ? "align-self-end" : "align-self-start")">
+                <div class="toast-header @(msg.Role == AuthorRole.Assistant ? "bg-success text-dark" : msg.Role == AuthorRole.Tool ? "bg-info text-dark" : "bg-primary text-light")">
+                    <i class="bi @(msg.Role == AuthorRole.Assistant || msg.Role == AuthorRole.Tool ? "bi-robot" : "bi-person") me-1" aria-hidden="true"></i>
+                    <strong class="me-auto text-capitalize">
+                        @msg.Role
+                    </strong>
+                </div>
+                <div class="toast-body">
+                    <i class="bi bi-grip-vertical mr-2 text-black-50"></i>
+                    @{
+                        MarkupString html;
+                        if (msg.Content is not null)
+                        {
+                            var text = msg.Content.Replace("\n", "<br />");
+                            Regex rgx = new Regex("```");
+                            var matches = rgx.Matches(text);
+                            if (matches.Count() > 0)
+                                for (int i = 0; i < matches.Count; i++)
+                                    if (i % 2 == 0)
+                                        // even = start code block tag
+                                        text = rgx.Replace(text, "<pre><code>", 1, i);
+                                    else
+                                        // odd = end code block tag
+                                        text = rgx.Replace(text, "</pre></code>", 1, i);
+                            html = new MarkupString(text);
+                        }
+                        else if (msg is OpenAIChatMessageContent openaiMsg)
+                        {
+                            if (openaiMsg.ToolCalls.Count > 0)
+                            {
+                                List<string> list = [];
+                                foreach (var toolCall in openaiMsg.ToolCalls)
+                                {
+                                    if (toolCall is ChatCompletionsFunctionToolCall functionToolCall)
+                                    {
+                                        list.Add($"> Calling function {functionToolCall.Name} with Arguments {functionToolCall.Arguments}");
+                                    }
+                                    else
+                                    {
+                                        list.Add($"Unknown toolCall: {toolCall.Id}");
+                                    }
+                                }
+                                html = new MarkupString(string.Join("<br />", list));
+                            }
+                            else
+                            {
+                                html = new MarkupString("Unknown system call");
+                            }
+                        }
+                        else
+                        {
+                            html = new MarkupString("Unknown message");
+                        }
+                    }
+                    @html
+                </div>
+            </div>
+        }
+    </div>
+
+    <div class="bg-primary text-light px-4 py-2 rounded-top-5 text-dark d-flex flex-column justify-content-center">
+        <div class="input-group">
+            <i class="bi bi-body-text input-group-text" aria-hidden="true"></i>
+            <input class="form-control form-control-sm" type="text" @bind="@UserPromptSet" @onkeydown="@Enter" @oninput="@((e) => { UserPrompt=e.Value?.ToString();})" rows="1" placeholder="<Your Message>"></input>
+            <button type="button" class="btn btn-outline-secondary" @onclick="SubmitPromptAsync">
+                <i class="bi bi-send-fill" aria-hidden="true"></i>
+            </button>
+        </div>
+    
+    </div>
+
+</div>
+
+@code {
+    private static OpenAIPromptExecutionSettings promptSettings = new()
+    {
+        ToolCallBehavior = ToolCallBehavior.AutoInvokeKernelFunctions,
+    };
+
+    private string? UserPrompt { get; set; }
+    private string? UserPromptSet { get; set; }
+
+    private ChatHistory History { get; set; } = new();
+
+    public async Task SubmitPromptAsync()
+    {
+        Console.WriteLine("Send message");
+
+        if (UserPrompt is null || UserPrompt == string.Empty) return;
+
+        UserPromptSet = string.Empty;
+
+        History.AddUserMessage(UserPrompt);
+
+        var chatService = _kernel.GetRequiredService<IChatCompletionService>();
+        var assistantMessage = await chatService.GetChatMessageContentAsync(History, promptSettings, _kernel);
+
+        if (assistantMessage is not null)
+            History.Add(assistantMessage);
+        else
+            History.AddAssistantMessage("Something went wrong...");
+    }
+
+    public async Task Enter(KeyboardEventArgs e)
+    {
+        if (e.Code == "Enter" || e.Code == "NumpadEnter")
+        {
+            await SubmitPromptAsync();
+        }
+    }
+}

@@ -1,0 +1,17 @@
+﻿@inherits LayoutComponentBase
+
+<main class="h-100 d-flex flex-row justify-content-start">
+    @* @if (!IsNavMenuCollapsed)
+    {
+        <NavMenu @ref="@NavMenu" OnChatClicked="LoadChatEventHandlerAsync" OnNavBarVisibilityUpdated="UpdateNavBarVisibility" />
+    } *@
+    <section class="flex-grow-1">
+        @Body
+    </section>
+</main>
+
+<div id="blazor-error-ui">
+    An unhandled error has occurred.
+    <a href="" class="reload">Reload</a>
+    <a class="dismiss">🗙</a>
+</div>
